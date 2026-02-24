@@ -14,15 +14,20 @@ Run:
     streamlit run dashboard/app.py
 """
 import sys
+import json
 import math
+import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Generator
 
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import httpx
+from dotenv import load_dotenv
+
+load_dotenv()
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -283,8 +288,144 @@ hr { border-color: var(--border) !important; }
             padding:10px 14px;border-radius:10px;border:1px solid rgba(16,185,129,0.2); }
 .api-err  { background:rgba(239,68,68,0.1);padding:10px 14px;border-radius:10px;
             border:1px solid rgba(239,68,68,0.2); }
+
+/* ── Chatbot ── */
+.chat-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1rem 0;
+}
+.chat-bubble {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    max-width: 85%;
+}
+.chat-bubble.user  { margin-left: auto; flex-direction: row-reverse; }
+.chat-avatar {
+    width: 34px; height: 34px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; flex-shrink: 0;
+}
+.avatar-user { background: rgba(19,127,236,0.2); }
+.avatar-ai   { background: rgba(168,85,247,0.2); }
+.chat-text {
+    padding: 10px 14px;
+    border-radius: 14px;
+    font-size: 0.88rem;
+    line-height: 1.55;
+    color: #f0f4f8;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.chat-text-user { background: rgba(19,127,236,0.18); border: 1px solid rgba(19,127,236,0.25); }
+.chat-text-ai   { background: var(--bg-card);        border: 1px solid var(--border); }
+.chat-thinking {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    padding: 10px 14px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+}
+.chat-thinking span {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #8a9bb0;
+    animation: bounce 1.2s infinite;
+    display: inline-block;
+}
+.chat-thinking span:nth-child(2) { animation-delay: .2s; }
+.chat-thinking span:nth-child(3) { animation-delay: .4s; }
+@keyframes bounce {
+    0%, 80%, 100% { transform: translateY(0); opacity: .4; }
+    40%           { transform: translateY(-6px); opacity: 1; }
+}
+.chat-meta {
+    font-size: 0.7rem;
+    color: #4a5568;
+    margin-top: 3px;
+    padding: 0 2px;
+}
+.suggested-btn {
+    display: inline-block;
+    background: var(--primary-10);
+    color: var(--primary);
+    border: 1px solid rgba(19,127,236,0.25);
+    border-radius: 20px;
+    padding: 5px 14px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .15s;
+    white-space: nowrap;
+}
+.suggested-btn:hover { background: rgba(19,127,236,0.2); }
 </style>
 """, unsafe_allow_html=True)
+
+# ── Chutes LLM config ───────────────────────────────────────────
+CHUTES_TOKEN = os.getenv("CHUTES_API_TOKEN", "")
+CHUTES_URL   = "https://llm.chutes.ai/v1/chat/completions"
+CHUTES_MODEL = "deepseek-ai/DeepSeek-V3-0324-TEE"
+
+SIMT_SYSTEM_PROMPT = """\
+Kamu adalah AI Assistant untuk SIMT Kompetisi Explorer, platform analitik data lomba/kompetisi
+resmi dari Kemendikdasmen (Kementerian Pendidikan Dasar dan Menengah) Indonesia.
+
+Database berisi 4.981+ kompetisi yang dikurasi, mencakup:
+- Level: Lokal, Provinsi, Nasional, Internasional
+- Sektor: Matematika, Sains, Teknologi, Seni, Olahraga, dll.
+- Skor kualitatif (0-100) dan Rating bintang (1-5)
+- Data penyelenggara dan lokasi negara
+
+Tugasmu:
+1. Membantu pengguna memahami data kompetisi Indonesia
+2. Memberikan saran lomba yang relevan berdasarkan minat/jenjang
+3. Menjelaskan insight dari data (tren, distribusi, kualitas penyelenggara)
+4. Menjawab pertanyaan tentang sistem penilaian SIMT
+5. Berbahasa Indonesia atau Inggris sesuai pertanyaan pengguna
+
+Jawab secara ringkas, informatif, dan pada poin yang ditanya.
+"""
+
+
+def stream_chutes(
+    messages: list[dict],
+    token: str,
+    temperature: float = 0.7,
+    max_tokens: int = 1024,
+) -> Generator[str, None, None]:
+    """Synchronous SSE streaming generator for Chutes LLM API."""
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+    }
+    body = {
+        "model": CHUTES_MODEL,
+        "messages": messages,
+        "stream": True,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    with httpx.stream("POST", CHUTES_URL, headers=headers, json=body, timeout=60) as resp:
+        resp.raise_for_status()
+        for line in resp.iter_lines():
+            if not line.startswith("data: "):
+                continue
+            data = line[6:]
+            if data == "[DONE]":
+                break
+            try:
+                chunk  = json.loads(data)
+                delta  = chunk["choices"][0]["delta"].get("content", "")
+                if delta:
+                    yield delta
+            except Exception:
+                pass
+
 
 # ── Plotly dark theme ─────────────────────────────────────────────
 PLOTLY_LAYOUT = dict(
@@ -347,6 +488,7 @@ PAGES = {
     "🗺️  Geography":         "geography",
     "🔍  Search & Export":   "search",
     "📈  Score Deep-Dive":   "score",
+    "🤖  AI Assistant":      "chatbot",
 }
 
 with st.sidebar:
@@ -439,7 +581,7 @@ if active == "overview":
         fig.update_traces(textposition="outside", textfont_color="#f0f4f8", marker_line_width=0)
         apply_theme(fig, 320)
         fig.update_coloraxes(colorbar_tickfont_color="#8a9bb0", colorbar_title_font_color="#8a9bb0")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
         st.markdown("</div>", unsafe_allow_html=True)
 
     with right:
@@ -461,7 +603,7 @@ if active == "overview":
         )
         apply_theme(fig, 320)
         fig.update_layout(showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
         st.markdown("</div>", unsafe_allow_html=True)
 
     # ── Row 2: Top Sectors ───────────────────────────────────────
@@ -483,7 +625,7 @@ if active == "overview":
         )
         fig.update_traces(textposition="outside", textfont_color="#f0f4f8", marker_line_width=0)
         apply_theme(fig, 430)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
         st.markdown("</div>", unsafe_allow_html=True)
 
     # ── Row 3: Growth Trend ──────────────────────────────────────
@@ -512,7 +654,7 @@ if active == "overview":
         ))
         apply_theme(fig, 320)
         fig.update_layout(showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
         st.markdown("</div>", unsafe_allow_html=True)
 
     # ── Row 4: Individu vs Kelompok ──────────────────────────────
@@ -534,7 +676,7 @@ if active == "overview":
         )
         apply_theme(fig, 260)
         fig.update_layout(showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
         st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -598,7 +740,7 @@ elif active == "organizer":
         orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
         font=dict(size=12, color="#8a9bb0"),
     ))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     st.markdown("</div>", unsafe_allow_html=True)
 
     # ── Top vs Flagged tables ─────────────────────────────────────
@@ -610,7 +752,7 @@ elif active == "organizer":
         top15 = df.nlargest(15, "avg_score")[["name", "count", "avg_score", "avg_rating"]].copy()
         top15.columns = ["Penyelenggara", "Jml Lomba", "Avg Score", "Avg Rating"]
         top15["Avg Score"] = top15["Avg Score"].round(2)
-        st.dataframe(top15, hide_index=True, use_container_width=True, height=420)
+        st.dataframe(top15, hide_index=True, width='stretch', height=420)
         st.markdown("</div>", unsafe_allow_html=True)
 
     with col_r:
@@ -620,7 +762,7 @@ elif active == "organizer":
             show = pabrik[["name", "count", "avg_score", "avg_rating"]].sort_values("count", ascending=False).copy()
             show.columns = ["Penyelenggara", "Jml Lomba", "Avg Score", "Avg Rating"]
             show["Avg Score"] = show["Avg Score"].round(2)
-            st.dataframe(show, hide_index=True, use_container_width=True, height=420)
+            st.dataframe(show, hide_index=True, width='stretch', height=420)
         else:
             st.info("Tidak ada organizer yang di-flag dengan kriteria saat ini.")
         st.markdown("</div>", unsafe_allow_html=True)
@@ -648,7 +790,7 @@ elif active == "organizer":
                           textfont_color="#f0f4f8", marker_line_width=0)
         apply_theme(fig, 340)
         fig.update_layout(showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
         st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -709,7 +851,7 @@ elif active == "geography":
             title_font_color="#8a9bb0",
         ),
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     st.markdown("</div>", unsafe_allow_html=True)
 
     # ── Top 20 countries bar ──────────────────────────────────────
@@ -725,7 +867,7 @@ elif active == "geography":
     )
     fig.update_traces(textposition="outside", textfont_color="#f0f4f8", marker_line_width=0)
     apply_theme(fig, 500)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     st.markdown("</div>", unsafe_allow_html=True)
 
     with st.expander("💡 Insight: % 'Internasional' yang digelar di Indonesia"):
@@ -860,7 +1002,7 @@ elif active == "search":
                 data=_csv_df.to_csv(index=False).encode("utf-8"),
                 file_name="simt_filtered.csv",
                 mime="text/csv",
-                use_container_width=True,
+                width='stretch',
             )
 
     # ── Data table ────────────────────────────────────────────────
@@ -887,7 +1029,7 @@ elif active == "search":
         st.dataframe(
             disp_df,
             hide_index=True,
-            use_container_width=True,
+            width='stretch',
             height=480,
             column_config={
                 "Rating ⭐": st.column_config.NumberColumn(format="%d ⭐"),
@@ -932,7 +1074,7 @@ elif active == "search":
     cp, ci, cn = st.columns([1, 3, 1])
     with cp:
         if st.button("← Sebelumnya", disabled=st.session_state.search_page <= 1,
-                     use_container_width=True):
+                     width='stretch'):
             st.session_state.search_page -= 1
             st.rerun()
     with ci:
@@ -943,7 +1085,7 @@ elif active == "search":
         )
     with cn:
         if st.button("Berikutnya →", disabled=st.session_state.search_page >= pages,
-                     use_container_width=True):
+                     width='stretch'):
             st.session_state.search_page += 1
             st.rerun()
 
@@ -974,7 +1116,7 @@ elif active == "score":
     )
     styled = score_df[["rating", "count", "min_score", "avg_score", "max_score"]].copy()
     styled.columns = ["Rating ⭐", "Jumlah", "Skor Min", "Avg Skor", "Skor Maks"]
-    st.dataframe(styled, hide_index=True, use_container_width=True)
+    st.dataframe(styled, hide_index=True, width='stretch')
     st.markdown("</div>", unsafe_allow_html=True)
 
     # ── Charts row ────────────────────────────────────────────────
@@ -994,7 +1136,7 @@ elif active == "score":
         fig.update_traces(textposition="outside", textfont_color="#f0f4f8", marker_line_width=0)
         apply_theme(fig, 340)
         fig.update_layout(showlegend=False, coloraxis_showscale=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
         st.markdown("</div>", unsafe_allow_html=True)
 
     with cr:
@@ -1020,7 +1162,7 @@ elif active == "score":
             barmode="stack", showlegend=False,
             yaxis_title="Skor", xaxis_title="Rating",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
         st.markdown("</div>", unsafe_allow_html=True)
 
     # ── Batch trend ───────────────────────────────────────────────
@@ -1053,7 +1195,7 @@ elif active == "score":
         )
         apply_theme(fig, 380)
         fig.update_layout(coloraxis_showscale=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     else:
         st.info("Data batch tidak tersedia.")
     st.markdown("</div>", unsafe_allow_html=True)
@@ -1083,7 +1225,160 @@ elif active == "score":
         )
         apply_theme(fig, 480)
         fig.update_layout(showlegend=False, coloraxis_showscale=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     else:
         st.info("Data variance tidak tersedia.")
     st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ════════════════════════════════════════════════════════════════
+# PAGE 6: AI ASSISTANT (CHATBOT)
+# ════════════════════════════════════════════════════════════════
+elif active == "chatbot":
+    st.markdown("""
+    <div class='page-header'>
+        <h1>AI Assistant</h1>
+        <p>Tanya apa saja tentang data kompetisi SIMT — didukung DeepSeek V3 via Chutes.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Token check ───────────────────────────────────────────────
+    if not CHUTES_TOKEN:
+        st.error(
+            "**CHUTES_API_TOKEN belum diset.**  \n"
+            "Buat file `.env` di root project dan tambahkan:"
+        )
+        st.code("CHUTES_API_TOKEN=your_token_here", language="bash")
+        st.stop()
+
+    # ── Enrich system prompt with live context ─────────────────────
+    overview = api_get("/analytics/overview") or {}
+    dynamic_ctx = ""
+    if overview:
+        dynamic_ctx = (
+            f"\n\nData ringkas dari database saat ini:\n"
+            f"- Total kompetisi  : {overview.get('total_competitions', 'N/A')}\n"
+            f"- Total event unik : {overview.get('total_events', 'N/A')}\n"
+            f"- Total penyelenggara: {overview.get('total_organizers', 'N/A')}\n"
+            f"- Total negara     : {overview.get('total_countries', 'N/A')}\n"
+            f"- Rata-rata skor   : {overview.get('avg_score', 'N/A')}\n"
+        )
+    system_msg = {"role": "system", "content": SIMT_SYSTEM_PROMPT + dynamic_ctx}
+
+    # ── Session state ─────────────────────────────────────────────
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+
+    # ── Suggested starters ────────────────────────────────────────
+    SUGGESTIONS = [
+        "Kompetisi apa saja yang levelnya Internasional?",
+        "Penyelenggara mana yang punya skor terbaik?",
+        "Apa arti rating bintang dalam sistem SIMT?",
+        "Ceritakan tren kompetisi 3 tahun terakhir.",
+    ]
+
+    if not st.session_state.chat_history:
+        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='section-card-title'>💡 Mulai percakapan</div>"
+            "<div class='section-card-subtitle'>Pilih pertanyaan cepat atau ketik sendiri di bawah.</div>",
+            unsafe_allow_html=True,
+        )
+        btn_cols = st.columns(2)
+        for idx, sug in enumerate(SUGGESTIONS):
+            with btn_cols[idx % 2]:
+                if st.button(sug, key=f"sug_{idx}", width='stretch'):
+                    st.session_state.chat_history.append({"role": "user", "content": sug})
+                    st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── Chat history display ───────────────────────────────────────
+    history_html = "<div class='chat-wrap'>"
+    for msg in st.session_state.chat_history:
+        if msg["role"] == "user":
+            history_html += (
+                "<div class='chat-bubble user'>"
+                "  <div class='chat-avatar avatar-user'>👤</div>"
+                "  <div>"
+                f"    <div class='chat-text chat-text-user'>{msg['content']}</div>"
+                "    <div class='chat-meta'>Kamu</div>"
+                "  </div>"
+                "</div>"
+            )
+        elif msg["role"] == "assistant":
+            history_html += (
+                "<div class='chat-bubble'>"
+                "  <div class='chat-avatar avatar-ai'>🤖</div>"
+                "  <div>"
+                f"    <div class='chat-text chat-text-ai'>{msg['content']}</div>"
+                "    <div class='chat-meta'>AI Assistant</div>"
+                "  </div>"
+                "</div>"
+            )
+    history_html += "</div>"
+    if st.session_state.chat_history:
+        st.markdown(history_html, unsafe_allow_html=True)
+
+    # ── Input + streaming ─────────────────────────────────────────
+    user_input = st.chat_input("Tanya tentang data kompetisi...")
+    if user_input:
+        st.session_state.chat_history.append({"role": "user", "content": user_input})
+        messages = [system_msg] + [
+            {"role": m["role"], "content": m["content"]}
+            for m in st.session_state.chat_history
+        ]
+
+        placeholder = st.empty()
+        full_response = ""
+        try:
+            for delta in stream_chutes(messages, token=CHUTES_TOKEN):
+                full_response += delta
+                placeholder.markdown(
+                    f"<div class='chat-bubble'>"
+                    f"  <div class='chat-avatar avatar-ai'>🤖</div>"
+                    f"  <div>"
+                    f"    <div class='chat-text chat-text-ai'>{full_response}▌</div>"
+                    f"    <div class='chat-meta'>AI Assistant</div>"
+                    f"  </div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+            placeholder.markdown(
+                f"<div class='chat-bubble'>"
+                f"  <div class='chat-avatar avatar-ai'>🤖</div>"
+                f"  <div>"
+                f"    <div class='chat-text chat-text-ai'>{full_response}</div>"
+                f"    <div class='chat-meta'>AI Assistant</div>"
+                f"  </div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+            st.session_state.chat_history.append(
+                {"role": "assistant", "content": full_response}
+            )
+        except httpx.HTTPStatusError as exc:
+            st.error(f"API error {exc.response.status_code}: {exc.response.text}")
+        except httpx.RequestError as exc:
+            st.error(f"Gagal menghubungi Chutes API: {exc}")
+
+        st.rerun()
+
+    # ── Bottom controls ───────────────────────────────────────────
+    if st.session_state.chat_history:
+        col_clear, col_export, _ = st.columns([1, 1.5, 5])
+        with col_clear:
+            if st.button("🗑️ Clear Chat", width='stretch'):
+                st.session_state.chat_history = []
+                st.rerun()
+        with col_export:
+            export_text = "\n\n".join(
+                f"{'Kamu' if m['role'] == 'user' else 'AI'}: {m['content']}"
+                for m in st.session_state.chat_history
+            )
+            st.download_button(
+                "⬇️ Export Chat",
+                data=export_text,
+                file_name="simt_chat_export.txt",
+                mime="text/plain",
+                width='stretch',
+            )
