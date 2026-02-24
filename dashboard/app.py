@@ -1,12 +1,13 @@
 """
 SIMT Kompetisi Explorer — Streamlit Dashboard
+Redesigned with Stitch UI design system.
 ═══════════════════════════════════════════════
 
 5 Pages:
   1. 📊 Overview          — KPI cards + distribution charts
   2. 🏆 Organizer Quality — Scatter plot + "pabrik lomba" analysis
   3. 🗺  Geography         — Country breakdown + map
-  4. 🔍 Search & Filter   — Interactive search + export
+  4. 🔍 Search & Export   — Interactive search + export
   5. 📈 Score Deep-Dive   — Distribution, thresholds, batch trend
 
 Run:
@@ -29,33 +30,277 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 API_BASE = "http://localhost:8000/api"
 
 st.set_page_config(
-    page_title = "SIMT Kompetisi Explorer",
-    page_icon  = "🏅",
-    layout     = "wide",
-    initial_sidebar_state = "expanded",
+    page_title="SIMT Kompetisi Explorer",
+    page_icon="🏅",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-# ── Custom CSS ────────────────────────────────────────────────────
+# ── Inject fonts & global CSS (Stitch design system) ─────────────
 st.markdown("""
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@300;400;500;600;700;900&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+
 <style>
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1.2rem 1.5rem;
-        border-radius: 12px;
-        color: white;
-        text-align: center;
-        box-shadow: 0 4px 15px rgba(118, 75, 162, 0.3);
-    }
-    .metric-card .value { font-size: 2rem; font-weight: 800; }
-    .metric-card .label { font-size: 0.85rem; opacity: 0.9; margin-top: 0.2rem; }
-    .flag-badge {
-        background: #ff4b4b; color: white;
-        padding: 2px 8px; border-radius: 12px;
-        font-size: 0.75rem; font-weight: bold;
-    }
-    .stTabs [data-baseweb="tab"] { font-size: 1rem; }
+/* ── Base ── */
+:root {
+    --primary: #137fec;
+    --primary-10: rgba(19,127,236,0.10);
+    --bg: #101922;
+    --bg-card: #1a2027;
+    --bg-sidebar: #111418;
+    --bg-input: #1c2127;
+    --border: rgba(255,255,255,0.08);
+    --text: #f0f4f8;
+    --text-muted: #8a9bb0;
+    --success: #10b981;
+    --danger: #ef4444;
+    --amber: #f59e0b;
+}
+
+html, body, [class*="css"] {
+    font-family: 'Public Sans', sans-serif !important;
+}
+
+/* ── Sidebar ── */
+[data-testid="stSidebar"] {
+    background: var(--bg-sidebar) !important;
+    border-right: 1px solid var(--border) !important;
+}
+[data-testid="stSidebar"] * { color: var(--text-muted) !important; }
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3 { color: var(--text) !important; }
+
+/* ── Main area ── */
+[data-testid="stAppViewContainer"] {
+    background: var(--bg) !important;
+}
+[data-testid="block-container"] {
+    background: var(--bg) !important;
+    padding-top: 1.5rem !important;
+}
+
+/* ── Titles ── */
+h1 { font-weight: 900 !important; letter-spacing: -0.5px !important; color: var(--text) !important; }
+h2, h3 { font-weight: 700 !important; color: var(--text) !important; }
+p, span, div { color: var(--text-muted); }
+
+/* ── Divider ── */
+hr { border-color: var(--border) !important; }
+
+/* ── Metric widget ── */
+[data-testid="metric-container"] {
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 12px !important;
+    padding: 1.25rem 1.5rem !important;
+}
+[data-testid="stMetricValue"] { color: var(--text) !important; font-weight: 700 !important; font-size: 1.75rem !important; }
+[data-testid="stMetricLabel"] { color: var(--text-muted) !important; font-size: 0.8rem !important; font-weight: 500 !important; text-transform: uppercase; letter-spacing: 0.05em; }
+[data-testid="stMetricDelta"] { font-size: 0.75rem !important; }
+
+/* ── KPI Hero cards ── */
+.kpi-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.35rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+}
+.kpi-card .kpi-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.kpi-card .kpi-label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-muted);
+}
+.kpi-card .kpi-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px; height: 34px;
+    border-radius: 8px;
+    font-size: 18px;
+}
+.kpi-card .kpi-value {
+    font-size: 2rem;
+    font-weight: 900;
+    color: var(--text);
+    line-height: 1;
+    margin-top: 0.5rem;
+}
+.kpi-card .kpi-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 99px;
+    margin-top: 4px;
+}
+.kpi-badge-up   { background: rgba(16,185,129,0.15); color: #10b981; }
+.kpi-badge-down { background: rgba(239,68,68,0.15);  color: #ef4444; }
+.kpi-badge-neu  { background: rgba(138,155,176,0.15); color: #8a9bb0; }
+
+/* ── Section card wrapper ── */
+.section-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+    margin-bottom: 1.25rem;
+}
+.section-card-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 0.25rem;
+}
+.section-card-subtitle {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+}
+
+/* ── Page header ── */
+.page-header { margin-bottom: 1.5rem; }
+.page-header h1 { font-size: 2rem; font-weight: 900; color: var(--text); margin-bottom: 0.2rem; }
+.page-header p  { font-size: 0.9rem; color: var(--text-muted); margin: 0; }
+
+/* ── Level badge ── */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 10px;
+    border-radius: 99px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.badge-intl     { background: rgba(168,85,247,0.15);  color: #c084fc; }
+.badge-national { background: rgba(19,127,236,0.15);  color: #60a5fa; }
+.badge-region   { background: rgba(16,185,129,0.15);  color: #34d399; }
+.badge-local    { background: rgba(245,158,11,0.15);  color: #fbbf24; }
+.badge-flagged  { background: rgba(239,68,68,0.15);   color: #f87171; }
+.badge-ok       { background: rgba(16,185,129,0.15);  color: #34d399; }
+
+/* ── Dataframe / Table ── */
+[data-testid="stDataFrame"] {
+    border: 1px solid var(--border) !important;
+    border-radius: 12px !important;
+    overflow: hidden;
+}
+.dvn-scroller { background: var(--bg-card) !important; }
+
+/* ── Inputs ── */
+[data-testid="stTextInput"] input,
+[data-testid="stSelectbox"] div[data-baseweb="select"],
+[data-testid="stSlider"] {
+    background: var(--bg-input) !important;
+    border-color: var(--border) !important;
+    color: var(--text) !important;
+    border-radius: 10px !important;
+}
+
+/* ── Download button ── */
+[data-testid="stDownloadButton"] button {
+    background: var(--primary) !important;
+    color: white !important;
+    border: none !important;
+    font-weight: 700 !important;
+    border-radius: 10px !important;
+}
+
+/* ── Buttons ── */
+.stButton > button {
+    background: var(--primary) !important;
+    color: white !important;
+    border: none !important;
+    font-weight: 700 !important;
+    border-radius: 10px !important;
+    transition: opacity .15s;
+}
+.stButton > button:hover { opacity: 0.88; }
+.stButton > button[disabled] {
+    background: var(--bg-card) !important;
+    color: var(--text-muted) !important;
+    opacity: 0.6 !important;
+}
+
+/* ── Expander ── */
+[data-testid="stExpander"] {
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 12px !important;
+}
+[data-testid="stExpanderDetails"] { background: var(--bg-card) !important; }
+
+/* ── Alert boxes ── */
+[data-testid="stAlert"] { border-radius: 10px !important; }
+
+/* ── Plotly chart background ── */
+.js-plotly-plot .plotly { background: transparent !important; }
+.main-svg { background: transparent !important; }
+
+/* ── Radio sidebar nav ── */
+[data-testid="stRadio"] label {
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    padding: 8px 14px !important;
+    border-radius: 10px !important;
+    transition: background .15s !important;
+    font-weight: 500 !important;
+    font-size: 0.9rem !important;
+    cursor: pointer;
+}
+[data-testid="stRadio"] label:hover { background: rgba(255,255,255,0.05) !important; }
+
+/* ── Result chip ── */
+.result-chip {
+    display: inline-block;
+    background: var(--primary-10);
+    color: var(--primary);
+    padding: 2px 12px;
+    border-radius: 99px;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+/* ── API status chip ── */
+.api-ok   { display:flex;align-items:center;gap:8px;background:rgba(16,185,129,0.1);
+            padding:10px 14px;border-radius:10px;border:1px solid rgba(16,185,129,0.2); }
+.api-err  { background:rgba(239,68,68,0.1);padding:10px 14px;border-radius:10px;
+            border:1px solid rgba(239,68,68,0.2); }
 </style>
 """, unsafe_allow_html=True)
+
+# ── Plotly dark theme ─────────────────────────────────────────────
+PLOTLY_LAYOUT = dict(
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(0,0,0,0)",
+    font=dict(family="Public Sans", color="#8a9bb0"),
+    xaxis=dict(gridcolor="rgba(255,255,255,0.06)", linecolor="rgba(255,255,255,0.1)"),
+    yaxis=dict(gridcolor="rgba(255,255,255,0.06)", linecolor="rgba(255,255,255,0.1)"),
+    margin=dict(t=30, b=30, l=10, r=10),
+)
+PLOTLY_COLORS = ["#137fec", "#a855f7", "#10b981", "#f59e0b", "#ef4444", "#3b82f6", "#ec4899"]
+
+
+def apply_theme(fig, height: int = 380):
+    fig.update_layout(**PLOTLY_LAYOUT, height=height)
+    return fig
 
 
 # ── API helpers ───────────────────────────────────────────────────
@@ -78,29 +323,69 @@ def check_api():
         return False
 
 
+# ── HTML component helpers ────────────────────────────────────────
+def kpi_card(label: str, value: str, icon: str, icon_bg: str,
+             badge_text: str = "", badge_type: str = "neu") -> str:
+    badge_html = ""
+    if badge_text:
+        badge_html = f"<span class='kpi-badge kpi-badge-{badge_type}'>{badge_text}</span>"
+    return f"""
+    <div class="kpi-card">
+        <div class="kpi-head">
+            <span class="kpi-label">{label}</span>
+            <span class="kpi-icon" style="background:{icon_bg};">{icon}</span>
+        </div>
+        <div class="kpi-value">{value}</div>
+        {badge_html}
+    </div>"""
+
+
 # ── Sidebar navigation ────────────────────────────────────────────
 PAGES = {
-    "📊 Overview":           "overview",
-    "🏆 Organizer Quality":  "organizer",
+    "📊  Overview":          "overview",
+    "🏆  Organizer Quality": "organizer",
     "🗺️  Geography":         "geography",
-    "🔍 Search & Filter":    "search",
-    "📈 Score Deep-Dive":    "score",
+    "🔍  Search & Export":   "search",
+    "📈  Score Deep-Dive":   "score",
 }
 
 with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/7/75/Flag_of_Indonesia.svg/160px-Flag_of_Indonesia.svg.png", width=60)
-    st.title("SIMT Explorer")
-    st.caption("Data Kurasi Lomba Kemendikdasmen")
-    st.divider()
+    st.markdown("""
+    <div style="display:flex;align-items:center;gap:12px;padding:4px 0 16px;">
+        <div style="width:40px;height:40px;background:linear-gradient(135deg,#137fec,#6366f1);
+                    border-radius:10px;display:flex;align-items:center;justify-content:center;
+                    font-size:20px;flex-shrink:0;">🏅</div>
+        <div>
+            <div style="font-size:1rem;font-weight:800;color:#f0f4f8;line-height:1.2;">SIMT Explorer</div>
+            <div style="font-size:0.72rem;color:#8a9bb0;">Competition Analytics</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    page = st.radio("Navigasi", list(PAGES.keys()), label_visibility="collapsed")
+    st.markdown(
+        "<p style='font-size:0.68rem;font-weight:700;text-transform:uppercase;"
+        "letter-spacing:.1em;color:#4a5568;padding:0 4px 6px;'>Navigation</p>",
+        unsafe_allow_html=True,
+    )
+    page   = st.radio("nav", list(PAGES.keys()), label_visibility="collapsed")
     active = PAGES[page]
 
     st.divider()
+
     if check_api():
-        st.success("API Connected ✓", icon="🟢")
+        st.markdown("""
+        <div class="api-ok">
+            <div style="width:8px;height:8px;border-radius:50%;background:#10b981;flex-shrink:0;"></div>
+            <span style="font-size:0.8rem;font-weight:600;color:#10b981;">API Connected</span>
+        </div>
+        """, unsafe_allow_html=True)
     else:
-        st.error("API Offline — jalankan:\n`uvicorn api.main:app --reload`", icon="🔴")
+        st.markdown("""
+        <div class="api-err">
+            <div style="font-size:0.8rem;font-weight:600;color:#ef4444;margin-bottom:4px;">⚠ API Offline</div>
+            <div style="font-size:0.72rem;color:#8a9bb0;">Run: uvicorn api.main:app --reload</div>
+        </div>
+        """, unsafe_allow_html=True)
         st.stop()
 
 
@@ -108,312 +393,414 @@ with st.sidebar:
 # PAGE 1: OVERVIEW
 # ════════════════════════════════════════════════════════════════
 if active == "overview":
-    st.title("📊 Overview — Ekosistem Kompetisi SIMT")
-    st.caption("Gambaran menyeluruh 4.981+ kompetisi yang dikurasi oleh Kemendikdasmen.")
+    st.markdown("""
+    <div class='page-header'>
+        <h1>Dashboard Overview</h1>
+        <p>Gambaran menyeluruh ekosistem kompetisi yang dikurasi Kemendikdasmen.</p>
+    </div>
+    """, unsafe_allow_html=True)
 
     data = api_get("/analytics/overview")
     if not data:
         st.stop()
 
-    # ── KPI Cards ────────────────────────────────────────────────
+    # ── KPI Cards ───────────────────────────────────────────────
     c1, c2, c3, c4, c5 = st.columns(5)
-    kpis = [
-        (c1, data["total_competitions"], "Total Lomba"),
-        (c2, data["total_events"],       "Event Unik"),
-        (c3, data["total_organizers"],   "Penyelenggara"),
-        (c4, data["total_countries"],    "Negara"),
-        (c5, f"{data['avg_score']:.1f}", "Rata-rata Skor"),
+    cards = [
+        (c1, "Total Lomba",   f"{data['total_competitions']:,}", "🏆", "rgba(19,127,236,0.15)"),
+        (c2, "Event Unik",    f"{data['total_events']:,}",       "📅", "rgba(168,85,247,0.15)"),
+        (c3, "Penyelenggara", f"{data['total_organizers']:,}",   "🏢", "rgba(245,158,11,0.15)"),
+        (c4, "Negara",        f"{data['total_countries']:,}",    "🌍", "rgba(16,185,129,0.15)"),
+        (c5, "Avg Score",     f"{data['avg_score']:.2f}",        "📊", "rgba(239,68,68,0.15)"),
     ]
-    for col, val, label in kpis:
-        display = f"{val:,}" if isinstance(val, int) else str(val)
-        col.markdown(f"""
-        <div class="metric-card">
-            <div class="value">{display}</div>
-            <div class="label">{label}</div>
-        </div>
-        """, unsafe_allow_html=True)
+    for col, label, value, icon, bg in cards:
+        col.markdown(kpi_card(label, value, icon, bg), unsafe_allow_html=True)
 
-    st.divider()
+    st.markdown("<div style='height:1.5rem'></div>", unsafe_allow_html=True)
 
-    # ── Row 1: Cluster pie + Level bar ──────────────────────────
-    col_left, col_right = st.columns(2)
+    # ── Row 1: Level bar + Cluster donut ────────────────────────
+    left, right = st.columns(2)
 
-    with col_left:
-        st.subheader("Distribusi per Cluster")
-        cluster_df = pd.DataFrame(data["cluster_distribution"])
-        fig = px.pie(
-            cluster_df, values="count", names="label",
-            color_discrete_sequence=px.colors.qualitative.Set2,
-            hole=0.4,
+    with left:
+        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='section-card-title'>Competitions by Level</div>"
+            "<div class='section-card-subtitle'>Distribution across competition tiers</div>",
+            unsafe_allow_html=True,
         )
-        fig.update_traces(textposition="outside", textinfo="percent+label")
-        fig.update_layout(showlegend=False, margin=dict(t=20, b=20))
-        st.plotly_chart(fig, use_container_width=True)
-
-    with col_right:
-        st.subheader("Level Kompetisi")
         level_df = pd.DataFrame(data["level_distribution"])
         fig = px.bar(
             level_df, x="count", y="label", orientation="h",
-            color="avg_score", color_continuous_scale="Viridis",
-            text="count", labels={"label": "", "count": "Jumlah", "avg_score": "Avg Score"},
+            color="avg_score",
+            color_continuous_scale=["#1d3557", "#137fec", "#60efff"],
+            text="count",
+            labels={"label": "", "count": "Jumlah", "avg_score": "Avg Score"},
         )
-        fig.update_traces(textposition="outside")
-        fig.update_layout(margin=dict(t=20, b=20), coloraxis_showscale=True)
+        fig.update_traces(textposition="outside", textfont_color="#f0f4f8", marker_line_width=0)
+        apply_theme(fig, 320)
+        fig.update_coloraxes(colorbar_tickfont_color="#8a9bb0", colorbar_title_font_color="#8a9bb0")
         st.plotly_chart(fig, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    # ── Row 2: Sector bar ────────────────────────────────────────
-    st.subheader("Top Sektor Kompetisi")
+    with right:
+        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='section-card-title'>Distribusi per Cluster</div>"
+            "<div class='section-card-subtitle'>Proporsi setiap kluster kompetisi</div>",
+            unsafe_allow_html=True,
+        )
+        cluster_df = pd.DataFrame(data["cluster_distribution"])
+        fig = px.pie(
+            cluster_df, values="count", names="label",
+            color_discrete_sequence=PLOTLY_COLORS, hole=0.44,
+        )
+        fig.update_traces(
+            textposition="outside", textinfo="percent+label",
+            outsidetextfont_color="#8a9bb0",
+            marker_line=dict(color="#101922", width=2),
+        )
+        apply_theme(fig, 320)
+        fig.update_layout(showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── Row 2: Top Sectors ───────────────────────────────────────
     sector_data = api_get("/analytics/by-sector")
     if sector_data:
+        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='section-card-title'>Top Sektor Kompetisi</div>"
+            "<div class='section-card-subtitle'>Jumlah lomba per bidang — warna: rata-rata skor</div>",
+            unsafe_allow_html=True,
+        )
         sector_df = pd.DataFrame(sector_data).sort_values("count", ascending=True)
         fig = px.bar(
             sector_df, x="count", y="sector", orientation="h",
-            color="avg_score", color_continuous_scale="RdYlGn",
-            text="count", labels={"sector": "", "count": "Jumlah", "avg_score": "Avg Score"},
-            title="Jumlah Lomba per Sektor (warna = rata-rata skor)",
+            color="avg_score",
+            color_continuous_scale=["#1d3557", "#137fec", "#10b981"],
+            text="count",
+            labels={"sector": "", "count": "Jumlah", "avg_score": "Avg Score"},
         )
-        fig.update_traces(textposition="outside")
-        fig.update_layout(height=450, margin=dict(t=40, b=20))
+        fig.update_traces(textposition="outside", textfont_color="#f0f4f8", marker_line_width=0)
+        apply_theme(fig, 430)
         st.plotly_chart(fig, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    # ── Row 3: Tren per tahun ────────────────────────────────────
-    st.subheader("Tren Jumlah Kompetisi per Tahun")
+    # ── Row 3: Growth Trend ──────────────────────────────────────
     year_data = api_get("/analytics/by-year")
     if year_data:
+        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='section-card-title'>Growth Trends</div>"
+            "<div class='section-card-subtitle'>Volume kompetisi dari tahun ke tahun</div>",
+            unsafe_allow_html=True,
+        )
         year_df = pd.DataFrame(year_data).dropna(subset=["year"])
         year_df["year"] = year_df["year"].astype(str)
-        fig = px.line(
-            year_df, x="year", y="count", markers=True,
-            labels={"year": "Tahun", "count": "Jumlah Lomba"},
-        )
-        fig.add_bar(x=year_df["year"], y=year_df["count"], opacity=0.3, name="Jumlah")
-        fig.update_layout(showlegend=False, margin=dict(t=20, b=20))
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=year_df["year"], y=year_df["count"],
+            marker_color="rgba(19,127,236,0.18)",
+            marker_line_width=0, name="Volume",
+        ))
+        fig.add_trace(go.Scatter(
+            x=year_df["year"], y=year_df["count"],
+            mode="lines+markers",
+            line=dict(color="#137fec", width=3),
+            marker=dict(color="#137fec", size=7, line=dict(color="#101922", width=2)),
+            name="Tren",
+        ))
+        apply_theme(fig, 320)
+        fig.update_layout(showlegend=False)
         st.plotly_chart(fig, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    # ── Row 4: Level × Cluster heatmap ───────────────────────────
-    with st.expander("🔍 Level × Cluster Matrix"):
-        comp_data = api_get("/competitions", params={"per_page": 100, "page": 1})
-        if comp_data:
-            # Pull full data for pivot (use analytics by-level as proxy)
-            level_data = api_get("/analytics/by-level")
-            st.json(level_data)
+    # ── Row 4: Individu vs Kelompok ──────────────────────────────
+    type_df = pd.DataFrame(data.get("type_distribution", []))
+    if not type_df.empty:
+        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='section-card-title'>Individu vs Kelompok</div>",
+            unsafe_allow_html=True,
+        )
+        fig = px.pie(
+            type_df, values="count", names="label",
+            color_discrete_sequence=["#137fec", "#a855f7"], hole=0.5,
+        )
+        fig.update_traces(
+            textposition="outside", textinfo="percent+label",
+            outsidetextfont_color="#8a9bb0",
+            marker_line=dict(color="#101922", width=2),
+        )
+        apply_theme(fig, 260)
+        fig.update_layout(showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ════════════════════════════════════════════════════════════════
 # PAGE 2: ORGANIZER QUALITY
 # ════════════════════════════════════════════════════════════════
 elif active == "organizer":
-    st.title("🏆 Analisis Kualitas Penyelenggara")
-    st.caption("Petakan reputasi penyelenggara — dari organizer terpercaya hingga 'pabrik lomba'.")
+    st.markdown("""
+    <div class='page-header'>
+        <h1>Organizer &amp; Score Analysis</h1>
+        <p>Deep dive ke reputasi penyelenggara — dari organizer terpercaya hingga "pabrik lomba".</p>
+    </div>
+    """, unsafe_allow_html=True)
 
     org_data = api_get("/analytics/organizer-quality")
     if not org_data:
         st.stop()
 
-    df = pd.DataFrame(org_data)
+    df     = pd.DataFrame(org_data)
+    pabrik = df[df["is_flagged"] == True]
+    avg_q  = df["avg_score"].mean()
 
-    # ── KPI row ──────────────────────────────────────────────────
-    total_org  = len(df)
-    pabrik     = df[df["is_flagged"] == True]
-    avg_q      = df["avg_score"].mean()
+    # ── KPI Cards ───────────────────────────────────────────────
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Penyelenggara", f"{total_org:,}")
-    c2.metric("Flagged 'Pabrik Lomba'", f"{len(pabrik):,}", help="Count ≥20 & Avg Score <45")
-    c3.metric("Avg Skor Keseluruhan", f"{avg_q:.1f}" if avg_q else "N/A")
-    c4.metric("Penyelenggara Volume Tinggi (≥10)", f"{len(df[df['count'] >= 10]):,}")
+    c1.markdown(kpi_card("Total Organizers",   f"{len(df):,}",    "🏢", "rgba(19,127,236,0.15)"), unsafe_allow_html=True)
+    c2.markdown(kpi_card("Flagged Organizers", f"{len(pabrik):,}", "🚩", "rgba(239,68,68,0.15)", "pabrik lomba", "down"), unsafe_allow_html=True)
+    c3.markdown(kpi_card("Avg Score",          f"{avg_q:.1f}" if avg_q else "—", "📊", "rgba(16,185,129,0.15)"), unsafe_allow_html=True)
+    c4.markdown(kpi_card("Volume ≥10",         f"{len(df[df['count'] >= 10]):,}", "📈", "rgba(245,158,11,0.15)"), unsafe_allow_html=True)
 
-    st.divider()
+    st.markdown("<div style='height:1.25rem'></div>", unsafe_allow_html=True)
 
-    # ── Main scatter plot ─────────────────────────────────────────
-    st.subheader("Scatter: Volume vs Kualitas Penyelenggara")
-    st.caption("Titik di kiri-bawah = banyak lomba tapi skor rendah (**pabrik lomba**). Titik di kanan-atas = organizer berkualitas.")
+    # ── Scatter plot ─────────────────────────────────────────────
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    st.markdown("""
+    <div class='section-card-title'>Volume vs Quality Scatter</div>
+    <div class='section-card-subtitle'>
+        Kiri-bawah = banyak lomba tapi skor rendah
+        (<b style='color:#ef4444'>pabrik lomba</b>).
+        Kanan-atas = organizer berkualitas.
+    </div>
+    """, unsafe_allow_html=True)
 
     df["color"] = df["is_flagged"].map({True: "🚩 Pabrik Lomba", False: "✅ Normal"})
-    df["display_name"] = df["name"].str[:40]
-
     fig = px.scatter(
         df, x="count", y="avg_score",
         color="color",
-        color_discrete_map={"🚩 Pabrik Lomba": "#ff4b4b", "✅ Normal": "#2196F3"},
+        color_discrete_map={"🚩 Pabrik Lomba": "#ef4444", "✅ Normal": "#137fec"},
         hover_name="name",
         hover_data={"count": True, "avg_score": ":.2f", "avg_rating": ":.1f", "color": False},
         size="count", size_max=40,
         labels={"count": "Jumlah Lomba", "avg_score": "Rata-rata Skor", "color": "Kategori"},
-        title="Semua Penyelenggara: Volume vs Kualitas",
     )
-    # Add quadrant annotations
-    fig.add_hline(y=45, line_dash="dash", line_color="gray", annotation_text="Threshold Skor 45")
-    fig.add_vline(x=20, line_dash="dash", line_color="gray", annotation_text="Threshold Volume 20")
-    fig.update_layout(height=500, margin=dict(t=60))
+    fig.add_hline(y=45, line_dash="dot", line_color="rgba(239,68,68,0.4)",
+                  annotation_text="Skor 45", annotation_font_color="#ef4444",
+                  annotation_font_size=11)
+    fig.add_vline(x=20, line_dash="dot", line_color="rgba(239,68,68,0.4)",
+                  annotation_text="Vol 20", annotation_font_color="#ef4444",
+                  annotation_font_size=11)
+    apply_theme(fig, 480)
+    fig.update_layout(legend=dict(
+        orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+        font=dict(size=12, color="#8a9bb0"),
+    ))
     st.plotly_chart(fig, use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    st.divider()
-
-    # ── Top vs Bottom organizers ──────────────────────────────────
+    # ── Top vs Flagged tables ─────────────────────────────────────
     col_l, col_r = st.columns(2)
 
     with col_l:
-        st.subheader("🥇 Top 15 Penyelenggara (Avg Score)")
-        top15 = df.nlargest(15, "avg_score")[["name", "count", "avg_score", "avg_rating"]]
+        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='section-card-title'>🥇 Top 15 Organizers</div>", unsafe_allow_html=True)
+        top15 = df.nlargest(15, "avg_score")[["name", "count", "avg_score", "avg_rating"]].copy()
         top15.columns = ["Penyelenggara", "Jml Lomba", "Avg Score", "Avg Rating"]
         top15["Avg Score"] = top15["Avg Score"].round(2)
-        st.dataframe(top15, hide_index=True, use_container_width=True)
+        st.dataframe(top15, hide_index=True, use_container_width=True, height=420)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     with col_r:
-        st.subheader("🚨 Flagged 'Pabrik Lomba'")
+        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='section-card-title'>🚩 Flagged &ldquo;Pabrik Lomba&rdquo;</div>", unsafe_allow_html=True)
         if len(pabrik):
-            pabrik_show = pabrik[["name", "count", "avg_score", "avg_rating"]].sort_values("count", ascending=False)
-            pabrik_show.columns = ["Penyelenggara", "Jml Lomba", "Avg Score", "Avg Rating"]
-            pabrik_show["Avg Score"] = pabrik_show["Avg Score"].round(2)
-            st.dataframe(pabrik_show, hide_index=True, use_container_width=True)
+            show = pabrik[["name", "count", "avg_score", "avg_rating"]].sort_values("count", ascending=False).copy()
+            show.columns = ["Penyelenggara", "Jml Lomba", "Avg Score", "Avg Rating"]
+            show["Avg Score"] = show["Avg Score"].round(2)
+            st.dataframe(show, hide_index=True, use_container_width=True, height=420)
         else:
-            st.info("Tidak ada penyelenggara yang di-flag dengan kriteria saat ini.")
+            st.info("Tidak ada organizer yang di-flag dengan kriteria saat ini.")
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    st.divider()
-
-    # ── Level comparison box ──────────────────────────────────────
-    st.subheader("Distribusi Skor: Internasional vs Nasional vs Provinsi")
+    # ── Level comparison bar ──────────────────────────────────────
     level_scores = api_get("/analytics/by-level")
     if level_scores:
+        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='section-card-title'>Score Distribution by Level</div>"
+            "<div class='section-card-subtitle'>Rata-rata skor: Internasional vs Nasional vs Regional</div>",
+            unsafe_allow_html=True,
+        )
         s_df = pd.DataFrame(level_scores)
         fig = px.bar(
             s_df, x="level", y="avg_score",
             error_y=s_df["max_score"] - s_df["avg_score"],
             error_y_minus=s_df["avg_score"] - s_df["min_score"],
             color="level",
-            labels={"level": "Level", "avg_score": "Rata-rata Skor"},
+            color_discrete_sequence=PLOTLY_COLORS,
             text="avg_score",
+            labels={"level": "Level", "avg_score": "Rata-rata Skor"},
         )
-        fig.update_traces(texttemplate="%{text:.1f}", textposition="outside")
-        fig.update_layout(height=380, showlegend=False)
+        fig.update_traces(texttemplate="%{text:.1f}", textposition="outside",
+                          textfont_color="#f0f4f8", marker_line_width=0)
+        apply_theme(fig, 340)
+        fig.update_layout(showlegend=False)
         st.plotly_chart(fig, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ════════════════════════════════════════════════════════════════
 # PAGE 3: GEOGRAPHY
 # ════════════════════════════════════════════════════════════════
 elif active == "geography":
-    st.title("🗺️ Sebaran Geografis Kompetisi")
-    st.caption("Distribusi kompetisi berdasarkan negara penyelenggara.")
+    st.markdown("""
+    <div class='page-header'>
+        <h1>Geographic Map</h1>
+        <p>Distribusi kompetisi berdasarkan negara penyelenggara.</p>
+    </div>
+    """, unsafe_allow_html=True)
 
     country_data = api_get("/analytics/by-country")
     if not country_data:
         st.stop()
 
     df = pd.DataFrame(country_data)
-
-    # ── KPI ──────────────────────────────────────────────────────
     total_countries = len(df)
-    id_count        = df[df["country_code"] == "ID"]["count"].sum() if "ID" in df["country_code"].values else 0
-    intl_pct        = (1 - id_count / df["count"].sum()) * 100
+    id_count = df[df["country_code"] == "ID"]["count"].sum() if "ID" in df["country_code"].values else 0
+    intl_pct = (1 - id_count / df["count"].sum()) * 100
 
+    # ── KPI Cards ───────────────────────────────────────────────
     c1, c2, c3 = st.columns(3)
-    c1.metric("Total Negara", total_countries)
-    c2.metric("Lomba di Indonesia", f"{int(id_count):,}")
-    c3.metric("Lomba di Luar Negeri", f"{intl_pct:.1f}%")
+    c1.markdown(kpi_card("Total Negara",         f"{total_countries}", "🌍", "rgba(19,127,236,0.15)"), unsafe_allow_html=True)
+    c2.markdown(kpi_card("Lomba di Indonesia",   f"{int(id_count):,}", "🇮🇩", "rgba(239,68,68,0.15)"), unsafe_allow_html=True)
+    c3.markdown(kpi_card("Lomba Luar Negeri",    f"{intl_pct:.1f}%",   "✈️",  "rgba(16,185,129,0.15)"), unsafe_allow_html=True)
 
-    st.divider()
+    st.markdown("<div style='height:1.25rem'></div>", unsafe_allow_html=True)
 
     # ── Choropleth map ────────────────────────────────────────────
-    st.subheader("Peta Sebaran Kompetisi")
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    st.markdown("<div class='section-card-title'>World Map — Sebaran Kompetisi</div>", unsafe_allow_html=True)
     fig = px.choropleth(
         df,
-        locations      = "country_code",
-        color          = "count",
-        hover_name     = "country",
-        hover_data     = {"count": True, "avg_score": ":.2f", "country_code": False},
-        color_continuous_scale = "Blues",
-        labels         = {"count": "Jumlah Lomba"},
+        locations="country_code", color="count",
+        hover_name="country",
+        hover_data={"count": True, "avg_score": ":.2f", "country_code": False},
+        color_continuous_scale=["#1d3557", "#137fec", "#60efff"],
+        labels={"count": "Jumlah Lomba"},
     )
+    fig.update_layout(**PLOTLY_LAYOUT)  # type: ignore[arg-type]
     fig.update_layout(
-        geo = dict(showframe=False, showcoastlines=True, projection_type="natural earth"),
-        margin = dict(t=0, b=0, l=0, r=0),
-        height = 450,
-        coloraxis_colorbar = dict(title="Jumlah Lomba"),
+        height=430,
+        geo=dict(
+            showframe=False, showcoastlines=True,
+            projection_type="natural earth",
+            bgcolor="rgba(0,0,0,0)",
+            landcolor="rgba(26,32,39,1)",
+            coastlinecolor="rgba(255,255,255,0.15)",
+            countrycolor="rgba(255,255,255,0.08)",
+            showocean=True, oceancolor="#0d1821",
+        ),
+        coloraxis_colorbar=dict(
+            title="Jumlah Lomba",
+            tickfont=dict(color="#8a9bb0"),
+            title_font_color="#8a9bb0",
+        ),
     )
     st.plotly_chart(fig, use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    # ── Bar chart top countries ──────────────────────────────────
-    st.subheader("Top 20 Negara Penyelenggara")
+    # ── Top 20 countries bar ──────────────────────────────────────
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    st.markdown("<div class='section-card-title'>Top 20 Negara Penyelenggara</div>", unsafe_allow_html=True)
     top_df = df.nlargest(20, "count").sort_values("count")
     fig = px.bar(
         top_df, x="count", y="country", orientation="h",
-        color="avg_score", color_continuous_scale="YlOrRd",
+        color="avg_score",
+        color_continuous_scale=["#1d3557", "#137fec", "#10b981"],
         text="count",
         labels={"count": "Jumlah Lomba", "country": "", "avg_score": "Avg Score"},
     )
-    fig.update_traces(textposition="outside")
-    fig.update_layout(height=500, margin=dict(t=20, b=20))
+    fig.update_traces(textposition="outside", textfont_color="#f0f4f8", marker_line_width=0)
+    apply_theme(fig, 500)
     st.plotly_chart(fig, use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    # ── Insight: "Internasional" yang tetap di Indonesia ─────────
-    with st.expander("💡 Insight: Berapa % 'Internasional' yang digelar di Indonesia?"):
-        st.markdown("""
-        Banyak lomba berlabel **Internasional** tetapi diselenggarakan di Indonesia.
-        Ini wajar — label 'Internasional' bisa berarti:
-        - Peserta dari berbagai negara, tapi venue di Jakarta/Bali
-        - Afiliasi dengan badan internasional (FIDE, IEA, dll.)
-        
-        Analisis ini membantu membedakan kompetisi yang **benar-benar diselenggarakan di luar negeri** 
-        vs. yang hanya internasional secara nama/peserta.
-        """)
-        comp_intl_id = api_get("/competitions", params={
-            "level": "Internasional", "per_page": 1, "country_code": "ID"
-        })
-        comp_intl_all = api_get("/competitions", params={
-            "level": "Internasional", "per_page": 1
-        })
-        if comp_intl_id and comp_intl_all:
+    with st.expander("💡 Insight: % 'Internasional' yang digelar di Indonesia"):
+        comp_intl_id  = api_get("/competitions", params={"level": "Internasional", "per_page": 1, "country_code": "ID"})
+        comp_intl_all = api_get("/competitions", params={"level": "Internasional", "per_page": 1})
+        if comp_intl_id and comp_intl_all and comp_intl_all["total"]:
             pct = comp_intl_id["total"] / comp_intl_all["total"] * 100
             st.metric(
-                "Lomba Internasional yang digelar di Indonesia",
+                "Lomba Internasional di Indonesia",
                 f"{comp_intl_id['total']:,} / {comp_intl_all['total']:,}",
                 f"{pct:.1f}% dari total Internasional",
             )
 
 
 # ════════════════════════════════════════════════════════════════
-# PAGE 4: SEARCH & FILTER
+# PAGE 4: SEARCH & EXPORT
 # ════════════════════════════════════════════════════════════════
 elif active == "search":
-    st.title("🔍 Pencarian & Filter Kompetisi")
-    st.caption("Temukan lomba sesuai minat, level, dan bidangmu.")
+    st.markdown("""
+    <div class='page-header'>
+        <h1>Competition Search</h1>
+        <p>Filter dan ekspor data kompetisi sesuai kebutuhanmu.</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # Load filter options
     options = api_get("/competitions/filters/options") or {}
 
-    # ── Filter sidebar ────────────────────────────────────────────
-    with st.sidebar:
-        st.subheader("🎛️ Filter")
-        search_q    = st.text_input("🔍 Cari nama lomba / penyelenggara", placeholder="e.g. Olimpiade, BRIN, Chess...")
-        f_level     = st.selectbox("Level",   ["Semua"] + options.get("levels",   []))
-        f_sector    = st.selectbox("Sektor",  ["Semua"] + options.get("sectors",  []))
-        f_cluster   = st.selectbox("Cluster", ["Semua"] + options.get("clusters", []))
-        f_type      = st.selectbox("Tipe",    ["Semua"] + options.get("types",    []))
-        f_rating    = st.slider("Min Rating ⭐", 0, 5, 0)
-        year_range  = options.get("years", [])
+    # ── Inline filter panel ──────────────────────────────────────
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    st.markdown("<div class='section-card-title'>🎛️ Filter</div>", unsafe_allow_html=True)
+
+    f_col1, f_col2 = st.columns(2)
+    with f_col1:
+        search_q = st.text_input(
+            "🔍 Cari nama lomba / penyelenggara",
+            placeholder="e.g. Olimpiade, BRIN, Chess...",
+        )
+    with f_col2:
+        f_level = st.selectbox("Level", ["Semua"] + options.get("levels", []))
+
+    f_col3, f_col4, f_col5, f_col6 = st.columns(4)
+    with f_col3:
+        f_sector  = st.selectbox("Sektor",  ["Semua"] + options.get("sectors",  []))
+    with f_col4:
+        f_cluster = st.selectbox("Cluster", ["Semua"] + options.get("clusters", []))
+    with f_col5:
+        f_type    = st.selectbox("Tipe",    ["Semua"] + options.get("types",    []))
+    with f_col6:
+        f_rating  = st.selectbox("Min Rating ⭐", [0, 1, 2, 3, 4, 5],
+                                 format_func=lambda x: f"{x}+" if x > 0 else "Semua")
+
+    f_col7, f_col8, f_col9 = st.columns(3)
+    with f_col7:
+        year_range = options.get("years", [])
         if year_range:
-            f_year  = st.select_slider(
-                "Tahun Pelaksanaan",
-                options     = year_range,
-                value       = (year_range[0], year_range[-1]),
+            f_year = st.select_slider(
+                "Tahun", options=year_range,
+                value=(year_range[0], year_range[-1]),
             )
         else:
-            f_year  = None
-
-        country_opts = [f"{c['name']} ({c['code']})" for c in options.get("countries", [])]
-        f_country_sel = st.selectbox("Negara", ["Semua"] + country_opts)
-        f_country_code = None
+            f_year = None
+    with f_col8:
+        country_opts    = [f"{c['name']} ({c['code']})" for c in options.get("countries", [])]
+        f_country_sel   = st.selectbox("Negara", ["Semua"] + country_opts)
+        f_country_code  = None
         if f_country_sel != "Semua":
             f_country_code = f_country_sel.split("(")[-1].rstrip(")")
-
-        sort_by = st.selectbox("Urutkan",  ["score", "rating", "id"])
+    with f_col9:
+        sort_by = st.selectbox("Urutkan", ["score", "rating", "id"])
         order   = st.radio("Urutan", ["desc", "asc"], horizontal=True)
 
-    # ── Build params ──────────────────────────────────────────────
-    per_page = 25
+    st.markdown("</div>", unsafe_allow_html=True)
 
+    # ── Build API params ──────────────────────────────────────────
+    per_page = 25
     if "search_page" not in st.session_state:
         st.session_state.search_page = 1
 
@@ -423,19 +810,18 @@ elif active == "search":
         "sort_by":  sort_by,
         "order":    order,
     }
-    if f_level    != "Semua": params["level"]    = f_level
-    if f_sector   != "Semua": params["sector"]   = f_sector
-    if f_cluster  != "Semua": params["cluster"]  = f_cluster
-    if f_type     != "Semua": params["type"]     = f_type
-    if f_rating   > 0:        params["rating_min"] = f_rating
-    if f_country_code:        params["country_code"] = f_country_code
+    if f_level   != "Semua": params["level"]   = f_level
+    if f_sector  != "Semua": params["sector"]  = f_sector
+    if f_cluster != "Semua": params["cluster"] = f_cluster
+    if f_type    != "Semua": params["type"]    = f_type
+    if f_rating  > 0:        params["rating_min"] = f_rating
+    if f_country_code:       params["country_code"] = f_country_code
     if f_year and year_range:
         params["year_start"] = f_year[0]
         params["year_end"]   = f_year[1]
 
-    # Use search endpoint if query is provided
     if search_q and len(search_q) >= 2:
-        endpoint = "/competitions/search"
+        endpoint   = "/competitions/search"
         params["q"] = search_q
     else:
         endpoint = "/competitions"
@@ -444,101 +830,134 @@ elif active == "search":
     if not result:
         st.stop()
 
-    total    = result["total"]
-    pages    = result["pages"]
-    items    = result["items"]
+    total = result["total"]
+    pages = result["pages"]
+    items = result["items"]
 
-    # ── Results header ────────────────────────────────────────────
-    st.markdown(f"**{total:,} kompetisi ditemukan** — Halaman {st.session_state.search_page}/{pages}")
-
-    if not items:
-        st.info("Tidak ada hasil untuk filter ini.")
-    else:
-        # ── Results table ─────────────────────────────────────────
-        df = pd.DataFrame(items)
-
-        DISPLAY_COLS = {
-            "id":         "ID",
-            "branch":     "Cabang/Nama Lomba",
-            "level":      "Level",
-            "sector":     "Sektor",
-            "type":       "Tipe",
-            "score":      "Skor",
-            "rating":     "Rating ⭐",
-            "batch_raw":  "Batch",
-        }
-        show_cols = [c for c in DISPLAY_COLS if c in df.columns]
-        display_df = df[show_cols].rename(columns=DISPLAY_COLS)
-        if "Skor" in display_df:
-            display_df["Skor"] = display_df["Skor"].round(2)
-
-        st.dataframe(
-            display_df,
-            hide_index     = True,
-            use_container_width = True,
-            height         = 480,
+    # ── Result header + export ────────────────────────────────────
+    rh1, rh2 = st.columns([5, 1])
+    with rh1:
+        st.markdown(
+            f"<div style='display:flex;align-items:center;gap:12px;padding:6px 0;'>"
+            f"<span style='font-size:1.1rem;font-weight:800;color:#f0f4f8;'>Competition Results</span>"
+            f"<span class='result-chip'>{total:,} found</span>"
+            f"</div>",
+            unsafe_allow_html=True,
         )
+    with rh2:
+        if items:
+            DISPLAY_COLS = {
+                "id": "ID", "branch": "Nama Lomba", "level": "Level",
+                "sector": "Sektor", "type": "Tipe",
+                "score": "Skor", "rating": "Rating", "batch_raw": "Batch",
+            }
+            _df       = pd.DataFrame(items)
+            _show     = [c for c in DISPLAY_COLS if c in _df.columns]
+            _csv_df   = _df[_show].rename(columns=DISPLAY_COLS)
+            if "Skor" in _csv_df: _csv_df["Skor"] = _csv_df["Skor"].round(2)
+            st.download_button(
+                label="⬇️ Export CSV",
+                data=_csv_df.to_csv(index=False).encode("utf-8"),
+                file_name="simt_filtered.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
 
-        # ── Detail card on click ──────────────────────────────────
+    # ── Data table ────────────────────────────────────────────────
+    if not items:
+        st.markdown("""
+        <div style='background:rgba(19,127,236,0.05);border:1px dashed rgba(19,127,236,0.2);
+                    border-radius:12px;padding:2.5rem;text-align:center;color:#8a9bb0;'>
+            <div style='font-size:2rem;margin-bottom:.5rem'>🔍</div>
+            Tidak ada hasil untuk filter ini.
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        DISPLAY_COLS = {
+            "id": "ID", "branch": "Nama Lomba", "level": "Level",
+            "sector": "Sektor", "type": "Tipe",
+            "score": "Skor", "rating": "Rating ⭐", "batch_raw": "Batch",
+        }
+        df       = pd.DataFrame(items)
+        show     = [c for c in DISPLAY_COLS if c in df.columns]
+        disp_df  = df[show].rename(columns=DISPLAY_COLS)
+        if "Skor" in disp_df: disp_df["Skor"] = disp_df["Skor"].round(2)
+
+        st.markdown("<div class='section-card' style='padding:0;overflow:hidden;'>", unsafe_allow_html=True)
+        st.dataframe(
+            disp_df,
+            hide_index=True,
+            use_container_width=True,
+            height=480,
+            column_config={
+                "Rating ⭐": st.column_config.NumberColumn(format="%d ⭐"),
+                "Skor":      st.column_config.NumberColumn(format="%.2f"),
+            },
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # ── Detail expander ──────────────────────────────────────
+        st.markdown("<div style='height:.75rem'></div>", unsafe_allow_html=True)
         selected_id = st.selectbox(
-            "Lihat detail salah satu (pilih ID):",
-            options   = [None] + [str(i["id"]) for i in items],
-            format_func = lambda x: "— pilih —" if x is None else f"ID {x}",
+            "Lihat detail (pilih ID):",
+            options=[None] + [str(i["id"]) for i in items],
+            format_func=lambda x: "— pilih —" if x is None else f"ID {x}",
         )
         if selected_id:
             detail = api_get(f"/competitions/{selected_id}")
             if detail:
                 with st.expander(f"📋 Detail: {detail['branch']}", expanded=True):
-                    c1, c2, c3 = st.columns(3)
-                    c1.write(f"**Level:** {detail.get('level', '-')}")
-                    c1.write(f"**Tipe:** {detail.get('type', '-')}")
-                    c1.write(f"**Sektor:** {detail.get('sector', '-')}")
-                    c2.write(f"**Skor:** {detail.get('score', '-')}")
-                    c2.write(f"**Rating:** {'⭐' * (detail.get('rating') or 0)}")
-                    c2.write(f"**Cluster:** {detail.get('cluster', '-')}")
+                    d1, d2, d3 = st.columns(3)
+                    d1.write(f"**Level:** {detail.get('level', '-')}")
+                    d1.write(f"**Tipe:** {detail.get('type', '-')}")
+                    d1.write(f"**Sektor:** {detail.get('sector', '-')}")
+                    d2.write(f"**Skor:** {detail.get('score', '-')}")
+                    d2.write(f"**Rating:** {'⭐' * (detail.get('rating') or 0)}")
+                    d2.write(f"**Cluster:** {detail.get('cluster', '-')}")
                     if detail.get("event"):
                         ev = detail["event"]
-                        c3.write(f"**Kompetisi:** {ev.get('name', '-')}")
-                        c3.write(f"**Tanggal:** {ev.get('competition_start', '-')} → {ev.get('competition_end', '-')}")
-                        c3.write(f"**Negara:** {ev.get('country', '-')}")
+                        d3.write(f"**Event:** {ev.get('name', '-')}")
+                        d3.write(f"**Tanggal:** {ev.get('competition_start', '-')} → {ev.get('competition_end', '-')}")
+                        d3.write(f"**Negara:** {ev.get('country', '-')}")
                         if ev.get("useful_link"):
                             st.markdown(f"🔗 [Link Kompetisi]({ev['useful_link'].split(',')[0].strip()})")
                     if detail.get("organizer"):
                         org = detail["organizer"]
                         st.write(f"**Penyelenggara:** {org.get('name', '-')}")
                         if org.get("useful_link"):
-                            st.markdown(f"🔗 [Website Penyelenggara]({org['useful_link']})")
+                            st.markdown(f"🔗 [Website]({org['useful_link']})")
 
-        # ── Export ────────────────────────────────────────────────
-        st.divider()
-        csv_data = display_df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label    = "⬇️ Download hasil sebagai CSV",
-            data     = csv_data,
-            file_name = "simt_filtered_results.csv",
-            mime     = "text/csv",
+    # ── Pagination ────────────────────────────────────────────────
+    st.markdown("<div style='height:.75rem'></div>", unsafe_allow_html=True)
+    cp, ci, cn = st.columns([1, 3, 1])
+    with cp:
+        if st.button("← Sebelumnya", disabled=st.session_state.search_page <= 1,
+                     use_container_width=True):
+            st.session_state.search_page -= 1
+            st.rerun()
+    with ci:
+        st.markdown(
+            f"<div style='text-align:center;color:#8a9bb0;font-size:.85rem;padding-top:.5rem;'>"
+            f"Halaman <b style='color:#f0f4f8'>{st.session_state.search_page}</b> / {pages}</div>",
+            unsafe_allow_html=True,
         )
-
-        # ── Pagination ────────────────────────────────────────────
-        col_prev, col_info, col_next = st.columns([1, 2, 1])
-        with col_prev:
-            if st.button("← Sebelumnya", disabled=st.session_state.search_page <= 1):
-                st.session_state.search_page -= 1
-                st.rerun()
-        with col_info:
-            st.markdown(f"<center>Hal. **{st.session_state.search_page}** / {pages}</center>", unsafe_allow_html=True)
-        with col_next:
-            if st.button("Berikutnya →", disabled=st.session_state.search_page >= pages):
-                st.session_state.search_page += 1
-                st.rerun()
+    with cn:
+        if st.button("Berikutnya →", disabled=st.session_state.search_page >= pages,
+                     use_container_width=True):
+            st.session_state.search_page += 1
+            st.rerun()
 
 
 # ════════════════════════════════════════════════════════════════
 # PAGE 5: SCORE DEEP-DIVE
 # ════════════════════════════════════════════════════════════════
 elif active == "score":
-    st.title("📈 Score Deep-Dive")
-    st.caption("Analisis mendalam distribusi skor, pola rating, dan tren per batch.")
+    st.markdown("""
+    <div class='page-header'>
+        <h1>Score Deep-Dive</h1>
+        <p>Analisis mendalam distribusi skor, pola rating, dan tren per batch.</p>
+    </div>
+    """, unsafe_allow_html=True)
 
     score_data = api_get("/analytics/score-distribution")
     if not score_data:
@@ -546,96 +965,125 @@ elif active == "score":
 
     score_df = pd.DataFrame(score_data)
 
-    # ── Row 1: Rating threshold table ────────────────────────────
-    st.subheader("🎯 Reverse-Engineering Rating Thresholds")
-    st.caption("Rating ditentukan algoritmis dari skor. Tabel ini menunjukkan rentang skor tiap rating.")
-
+    # ── Rating threshold table ────────────────────────────────────
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='section-card-title'>🎯 Rating Threshold Reverse-Engineering</div>"
+        "<div class='section-card-subtitle'>Rentang skor dan jumlah kompetisi tiap bintang rating</div>",
+        unsafe_allow_html=True,
+    )
     styled = score_df[["rating", "count", "min_score", "avg_score", "max_score"]].copy()
     styled.columns = ["Rating ⭐", "Jumlah", "Skor Min", "Avg Skor", "Skor Maks"]
     st.dataframe(styled, hide_index=True, use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    st.divider()
+    # ── Charts row ────────────────────────────────────────────────
+    cl, cr = st.columns(2)
+    RATING_COLORS = ["#ef4444", "#f59e0b", "#f97316", "#137fec", "#6366f1", "#10b981"]
 
-    # ── Row 2: Bar chart score dist ──────────────────────────────
-    col_l, col_r = st.columns(2)
-
-    with col_l:
-        st.subheader("Distribusi Jumlah per Rating")
+    with cl:
+        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='section-card-title'>Distribution per Rating</div>", unsafe_allow_html=True)
         fig = px.bar(
             score_df, x="rating", y="count",
             color="rating",
-            color_continuous_scale="RdYlGn",
+            color_continuous_scale=["#ef4444", "#f59e0b", "#137fec", "#6366f1", "#10b981", "#14b8a6"],
             text="count",
             labels={"rating": "Rating ⭐", "count": "Jumlah"},
         )
-        fig.update_traces(textposition="outside")
-        fig.update_layout(height=380, showlegend=False)
+        fig.update_traces(textposition="outside", textfont_color="#f0f4f8", marker_line_width=0)
+        apply_theme(fig, 340)
+        fig.update_layout(showlegend=False, coloraxis_showscale=False)
         st.plotly_chart(fig, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    with col_r:
-        st.subheader("Rentang Skor per Rating")
+    with cr:
+        st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='section-card-title'>Score Range per Rating</div>", unsafe_allow_html=True)
         fig = go.Figure()
-        colors = ["#d32f2f", "#e64a19", "#f57c00", "#fbc02d", "#388e3c", "#1565c0"]
         for _, row in score_df.iterrows():
-            r = int(row["rating"]) if row["rating"] >= 0 else 0
-            color = colors[r] if r < len(colors) else "#888"
+            r     = int(row["rating"]) if row["rating"] >= 0 else 0
+            color = RATING_COLORS[r % len(RATING_COLORS)]
             fig.add_trace(go.Bar(
-                name    = f"Rating {row['rating']}⭐",
-                x       = [f"Rating {row['rating']}"],
-                y       = [row["max_score"] - row["min_score"]],
-                base    = [row["min_score"]],
-                marker_color = color,
-                text    = [f"{row['min_score']:.1f}–{row['max_score']:.1f}"],
-                textposition = "inside",
+                name=f"Rating {row['rating']}⭐",
+                x=[f"Rating {row['rating']}"],
+                y=[row["max_score"] - row["min_score"]],
+                base=[row["min_score"]],
+                marker_color=color,
+                marker_line_width=0,
+                text=[f"{row['min_score']:.1f}–{row['max_score']:.1f}"],
+                textposition="inside",
+                insidetextanchor="middle",
             ))
+        apply_theme(fig, 340)
         fig.update_layout(
-            barmode="stack", height=380, showlegend=False,
+            barmode="stack", showlegend=False,
             yaxis_title="Skor", xaxis_title="Rating",
         )
         st.plotly_chart(fig, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    st.divider()
-
-    # ── Row 3: Batch trend ────────────────────────────────────────
-    st.subheader("📦 Tren Skor per Batch (Standar Kurasi dari Waktu ke Waktu)")
+    # ── Batch trend ───────────────────────────────────────────────
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='section-card-title'>📦 Batch Trend</div>"
+        "<div class='section-card-subtitle'>Standar kurasi dari waktu ke waktu per batch</div>",
+        unsafe_allow_html=True,
+    )
     batch_data = api_get("/analytics/by-batch")
     if batch_data:
         batch_df = pd.DataFrame(batch_data).dropna(subset=["batch_num"])
         batch_df["label"] = batch_df.apply(
-            lambda r: f"B{int(r['batch_num'])}/{int(r['batch_year'])}" if r["batch_year"] else f"B{int(r['batch_num'])}",
-            axis=1
+            lambda r: f"B{int(r['batch_num'])}/{int(r['batch_year'])}"
+                      if r["batch_year"] else f"B{int(r['batch_num'])}",
+            axis=1,
         )
         fig = px.scatter(
             batch_df, x="label", y="avg_score",
             size="count", color="avg_score",
-            color_continuous_scale="RdYlGn",
+            color_continuous_scale=["#ef4444", "#f59e0b", "#10b981"],
             text="count",
             labels={"label": "Batch", "avg_score": "Avg Skor", "count": "Jumlah"},
-            title="Rata-rata Skor per Batch Kurasi",
         )
-        fig.add_hline(y=batch_df["avg_score"].mean(), line_dash="dash",
-                      annotation_text="Rata-rata keseluruhan")
-        fig.update_layout(height=400, margin=dict(t=50))
+        fig.add_hline(
+            y=batch_df["avg_score"].mean(), line_dash="dot",
+            line_color="rgba(255,255,255,0.2)",
+            annotation_text="Rata-rata",
+            annotation_font_color="#8a9bb0", annotation_font_size=11,
+        )
+        apply_theme(fig, 380)
+        fig.update_layout(coloraxis_showscale=False)
         st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Data batch tidak tersedia.")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    st.divider()
-
-    # ── Row 4: Intra-competition variance ─────────────────────────
-    st.subheader("🔀 Variasi Skor Antar-Cabang dalam Satu Event")
-    st.caption("Event dengan rentang skor tertinggi — artinya ada cabang yang sangat bagus dan ada yang sangat buruk dalam event yang sama.")
+    # ── Intra-competition variance ────────────────────────────────
+    st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='section-card-title'>🔀 Variasi Skor Antar-Cabang dalam Satu Event</div>"
+        "<div class='section-card-subtitle'>Event dengan rentang skor tertinggi — ada cabang sangat baik dan sangat buruk dalam event yang sama.</div>",
+        unsafe_allow_html=True,
+    )
     variance_data = api_get("/analytics/intra-competition-variance", params={"limit": 15})
     if variance_data:
         var_df = pd.DataFrame(variance_data)
-        var_df["event_name_short"] = var_df["event_name"].str[:60]
+        var_df["event_name_short"] = var_df["event_name"].str[:65]
         fig = px.bar(
             var_df.sort_values("score_range", ascending=True),
-            x="score_range", y="event_name_short",
-            orientation="h",
+            x="score_range", y="event_name_short", orientation="h",
             color="score_range",
-            color_continuous_scale="Reds",
+            color_continuous_scale=["#137fec", "#f59e0b", "#ef4444"],
             text="branch_count",
             labels={"score_range": "Rentang Skor (Max-Min)", "event_name_short": ""},
         )
-        fig.update_traces(texttemplate="%{text} cabang", textposition="outside")
-        fig.update_layout(height=500, margin=dict(t=20, b=20), showlegend=False)
+        fig.update_traces(
+            texttemplate="%{text} cabang", textposition="outside",
+            textfont_color="#f0f4f8", marker_line_width=0,
+        )
+        apply_theme(fig, 480)
+        fig.update_layout(showlegend=False, coloraxis_showscale=False)
         st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Data variance tidak tersedia.")
+    st.markdown("</div>", unsafe_allow_html=True)
